@@ -38,8 +38,8 @@ void register(Commander registry) {
     ..withDescription('Updates cached docs to the latest version.')
     ..withUsage('update')
     ..withExecutor((List<String> args, Message ctx, DocBot bot) {
-      if (bot.config['managers'].contains(ctx.author.username)) {
-        clearDocCache();
+      if (bot.config['managers'].contains(ctx.author.id)) {
+        clearDocCache().then((m) => ctx.channel.sendMessage(':thumbsup: Successfully updated doc cache.'));
       } else {
         throw "You don't have permission to do this!";
       }
