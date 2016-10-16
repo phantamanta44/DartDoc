@@ -32,9 +32,9 @@ class DocType extends DocObject {
   }
 
   String formatDoc() { // TODO Find better formatting method
-    StringBuffer buf = new StringBuffer('```markdown\n');
+    StringBuffer buf = new StringBuffer();
 
-    buf..write('[Signature]: ');
+    buf..write('```dart\n');
     if (modifiers != null)
       buf..write(modifiers.join(' '))..write(' ');
     buf..write('class ')..write(memberName);
@@ -42,20 +42,20 @@ class DocType extends DocObject {
       buf..write(' extends $superClass');
     if (implemented != null)
       buf..write(' implements ${implemented.join(', ')}');
-    buf..write('\n');
+    buf..write('\n```\n');
 
-    buf..write('[Containing Library]: ')..write(file)..write('\n');
+    buf..write(comment.join('\n'))..write('\n\n');
+
+    buf..write('**Containing File:** ')..write(file)..write('\n\n');
 
     if (constructors.isNotEmpty)
-      buf..write('[Constructors]: ')..write(constructors.map((c) => c.memberQuery).join(', '))..write('\n');
+      buf..write('**Constructors:** ')..write(constructors.map((c) => '`${c.memberQuery}`').join(', '))..write('\n\n');
 
     if (funcs.isNotEmpty)
-      buf..write('[Member Functions]: ')..write(funcs.values.map((f) => f.memberQuery).join(', '))..write('\n');
+      buf..write('**Member Functions:** ')..write(funcs.values.map((f) => '`${f.memberQuery}`').join(', '))..write('\n\n');
 
     if (fields.isNotEmpty)
-      buf..write('[Member Fields]: ')..write(fields.values.map((f) => f.memberQuery).join(', '))..write('\n');
-
-    buf..write('\n')..write(comment.join('\n'))..write('\n```');
+      buf..write('**Member Fields:** ')..write(fields.values.map((f) => '`${f.memberQuery}`').join(', '));
     return buf.toString();
   }
 }
@@ -71,28 +71,28 @@ class DocFunction extends DocObject {
   DocFunction(String name, String file) : super(name, file);
 
   String formatDoc() { // TODO Find better formatting method
-    StringBuffer buf = new StringBuffer('```markdown\n');
+    StringBuffer buf = new StringBuffer();
 
-    buf..write('[Signature]: ');
+    buf..write('```dart\n');
     if (modifiers != null)
       buf..write(modifiers.join(' '))..write(' ');
     buf..write(returnType)..write(' ')..write(memberName)
       ..write('(')..write(params)..write(')');
     if (async)
       buf..write(' async');
-    buf..write('\n');
+    buf..write('\n```\n');
 
-    buf..write('[Containing Library]: ')..write(file)..write('\n');
+    buf..write(comment.join('\n'))..write('\n\n');
+
+    buf..write('**Containing File:** ')..write(file)..write('\n\n');
 
     if (parent != null)
-      buf..write('[Containing Class]: ')..write(parent.memberName)..write('\n');
+      buf..write('**Containing Class:** ')..write('`${parent.memberQuery}')..write('\n\n');
 
     if (params.isNotEmpty)
-      buf..write('[Parameters]: ')..write(params)..write('\n');
+      buf..write('**Parameters:** ')..write('`$params`')..write('\n\n');
 
-    buf..write('[Return Type]: ')..write(returnType)..write('\n');
-
-    buf..write('\n')..write(comment.join('\n'))..write('\n```');
+    buf..write('**Return Type:** ')..write('`$returnType`');
     return buf.toString();
   }
 }
@@ -106,27 +106,28 @@ class DocField extends DocObject {
   DocField(String name, String file) : super(name, file);
 
   String formatDoc() { // TODO Find better formatting method
-    StringBuffer buf = new StringBuffer('```markdown\n');
+    StringBuffer buf = new StringBuffer();
 
-    buf..write('[Signature]: ');
+    buf..write('```dart\n');
     if (modifiers != null)
       buf..write(modifiers.join(' '))..write(' ');
-    buf..write(type)..write(' ')..write(memberName)..write('\n');
+    buf..write(type)..write(' ')..write(memberName)..write('\n```\n');
 
-    buf..write('[Containing Library]: ')..write(file)..write('\n');
+    buf..write(comment.join('\n'))..write('\n\n');
+
+    buf..write('**Containing File:** ')..write(file)..write('\n\n');
 
     if (parent != null)
-      buf..write('[Containing Class]: ')..write(parent.memberName)..write('\n');
+      buf..write('**Containing Class:** ')..write('`${parent.memberQuery}`')..write('\n\n');
 
-    buf..write('[Static Type]: ')..write(type)..write('\n');
-
-    buf..write('\n')..write(comment.join('\n'))..write('\n```');
+    buf..write('**Static Type:** ')..write('`$type`');
     return buf.toString();
   }
 }
 
 final HttpClient http = new HttpClient();
 String srcUrl, fileName;
+List<Pattern> toIgnore;
 DateTime lastCacheTime;
 Set<DocObject> cached = new Set();
 
@@ -135,6 +136,7 @@ Future cacheSrc() async {
   (await (await (await http.getUrl(Uri.parse(srcUrl))).close()).pipe(cacheFile.openWrite()));
   lastCacheTime = new DateTime.now();
   new ZipDecoder().decodeBytes(cacheFile.readAsBytesSync())
+    .where((f) => toIgnore.every((p) => p.allMatches(f.name).isEmpty))
     .where((f) => f.name.startsWith(new RegExp(r'.+[\\/]lib[\\/]')))
     .map((f) => parse(new String.fromCharCodes(f.content), f.name.substring(f.name.lastIndexOf(new RegExp(r'[\\/]')) + 1)))
     .forEach(cached.addAll);
