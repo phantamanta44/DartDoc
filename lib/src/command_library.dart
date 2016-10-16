@@ -9,7 +9,7 @@ void register(Commander registry) {
     ..withDescription('Prints available commands.')
     ..withExecutor((List<String> args, Message ctx, DocBot bot) {
       String help = registry.commands.map((c) => '[ ${c.usage} ]( ${c.desc} )').join('\n');
-      ctx.channel.sendMessage('```markdown\nDocBot Help\n============\n$help\n```');
+      ctx.channel.sendMessage('```markdown\nDocBot Help\n===========\n$help\n```');
     }));
   registry.register(new Command('doc')
     ..withAlias('docs')

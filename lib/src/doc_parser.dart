@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
+import 'package:yaml/yaml.dart' show loadYaml;
 
 abstract class DocObject {
   String memberName;
@@ -56,6 +57,9 @@ class DocType extends DocObject {
 
     if (fields.isNotEmpty)
       buf..write('**Member Fields:** ')..write(fields.values.map((f) => '`${f.memberQuery}`').join(', '));
+
+    if (showDartDocsLink && libMap.containsKey(file))
+      buf..write('\n\n')..write('https://www.dartdocs.org/documentation/${pubSpec['name']}/${pubSpec['version']}/${libMap[file]}/$memberName-class.html');
     return buf.toString();
   }
 }
@@ -87,12 +91,15 @@ class DocFunction extends DocObject {
     buf..write('**Containing File:** ')..write(file)..write('\n\n');
 
     if (parent != null)
-      buf..write('**Containing Class:** ')..write('`${parent.memberQuery}')..write('\n\n');
+      buf..write('**Containing Class:** ')..write('`${parent.memberQuery}`')..write('\n\n');
 
     if (params.isNotEmpty)
       buf..write('**Parameters:** ')..write('`$params`')..write('\n\n');
 
     buf..write('**Return Type:** ')..write('`$returnType`');
+
+    if (showDartDocsLink && libMap.containsKey(file))
+      buf..write('\n\n')..write('https://www.dartdocs.org/documentation/${pubSpec['name']}/${pubSpec['version']}/${libMap[file]}/${parent != null ? '${parent.memberName}/' : ''}$memberName.html');
     return buf.toString();
   }
 }
@@ -121,6 +128,9 @@ class DocField extends DocObject {
       buf..write('**Containing Class:** ')..write('`${parent.memberQuery}`')..write('\n\n');
 
     buf..write('**Static Type:** ')..write('`$type`');
+
+    if (showDartDocsLink && libMap.containsKey(file))
+      buf..write('\n\n')..write('https://www.dartdocs.org/documentation/${pubSpec['name']}/${pubSpec['version']}/${libMap[file]}/${parent != null ? '${parent.memberName}/' : ''}$memberName.html');
     return buf.toString();
   }
 }
@@ -128,18 +138,24 @@ class DocField extends DocObject {
 final HttpClient http = new HttpClient();
 String srcUrl, fileName;
 List<Pattern> toIgnore;
+bool showDartDocsLink;
+var pubSpec;
 DateTime lastCacheTime;
 Set<DocObject> cached = new Set();
+Map<String, String> libMap = new Map();
 
 Future cacheSrc() async {
   File cacheFile = new File(fileName);
   (await (await (await http.getUrl(Uri.parse(srcUrl))).close()).pipe(cacheFile.openWrite()));
   lastCacheTime = new DateTime.now();
-  new ZipDecoder().decodeBytes(cacheFile.readAsBytesSync())
-    .where((f) => toIgnore.every((p) => p.allMatches(f.name).isEmpty))
+  Archive zip = new ZipDecoder().decodeBytes(cacheFile.readAsBytesSync());
+  zip.where((f) => toIgnore.every((p) => p.allMatches(f.name).isEmpty))
     .where((f) => f.name.startsWith(new RegExp(r'.+[\\/]lib[\\/]')))
     .map((f) => parse(new String.fromCharCodes(f.content), f.name.substring(f.name.lastIndexOf(new RegExp(r'[\\/]')) + 1)))
     .forEach(cached.addAll);
+  pubSpec = loadYaml(new String.fromCharCodes(
+      zip.firstWhere((f) => f.name.endsWith('pubspec.yaml') || f.name.endsWith('pubspec.yml')).content
+  ));
 }
 
 final RegExp typeRegExp = new RegExp(r'^((?:[a-z]+ )+)?class (\w+) ?(?: extends (\w+) )?(?: implements ((?:\w+(,\s*)?)+) )?\{');
@@ -161,6 +177,8 @@ Iterable<DocObject> parse(String file, String fName) {
     if (effectiveBalance == 0) {
       if (line.startsWith('///')) {
         docComment.add(line.substring(3).trim());
+      } else if (line.startsWith('part of ')) {
+        libMap[fName] = line.substring(8, line.length - 1);
       } else if ((match = typeRegExp.firstMatch(line)) != null) {
         if (!match.group(2).trim().startsWith('_')) {
           DocType doc = new DocType(match.group(2).trim(), fName);
@@ -261,6 +279,7 @@ int bracketBalance(String line) {
 
 Future clearDocCache() async {
   cached.clear();
+  libMap.clear();
   cacheSrc();
 }
 
@@ -286,9 +305,8 @@ class FunctionQuery extends DocQuery {
   FunctionQuery(this.containing, this.name, this.params, this.file);
 
   Iterable<DocObject> allMatches() {
-    print('$containing#$name($params)');
     Iterable<DocFunction> matches = cached.where((f) => f is DocFunction && f.memberName == this.name);
-    if (this.containing == null && this.containing.trim().isNotEmpty)
+    if (this.containing == null || this.containing.trim().isEmpty)
       matches = matches.where((f) => f.parent == null);
     else
       matches = matches.where((f) => f.parent != null && f.parent.memberName == this.containing);
@@ -307,7 +325,7 @@ class FieldQuery extends DocQuery {
 
   Iterable<DocObject> allMatches() {
     Iterable<DocField> matches = cached.where((f) => f is DocField && f.memberName == this.name);
-    if (this.containing == null && this.containing.trim().isNotEmpty)
+    if (this.containing == null || this.containing.trim().isEmpty)
       matches = matches.where((f) => f.parent == null);
     else
       matches = matches.where((f) => f.parent.memberName == this.containing);
