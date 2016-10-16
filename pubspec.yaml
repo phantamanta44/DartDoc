@@ -1,0 +1,15 @@
+name: dartdocbot
+version: 1.0.0
+description: Pretty cool Discord bot for parsing Dart docs.
+author: Phanta <evandalong@gmail.com>
+homepage: http://phanta.xyz
+environment:
+  sdk: '>=1.0.0 <2.0.0'
+dependencies:
+  discord:
+    git:
+      url: git://github.com/Hackzzila/Discord-Dart.git
+      ref: indev
+  args:
+  yaml:
+  archive:
