@@ -142,7 +142,7 @@ Future cacheSrc() async {
 
 final RegExp typeRegExp = new RegExp(r'^((?:[a-z]+ )+)?class (\w+) ?(?: extends (\w+) )?(?: implements ((?:\w+(,\s*)?)+) )?\{');
 final RegExp funcRegExp = new RegExp(r'^(?!(?:(?:[a-z]+ )+)??class|part(?: of)?|get|set|return|yield)((?:[a-z]+ )*)?([\w.]+(?:<[\w.<, >]+>)? )?(?!(?:if|for|catch|while|with|super|switch|this)\W)([\w.]+)\s*\((.*)\)(?: (async))?');
-final RegExp fieldRegExp = new RegExp(r'^(?!(?:(?:[a-z]+ )*)?class|part(?: of)?|get|set|return|yield|library)((?:[a-z]+ )+)?(\w+(?:<[\w<, >]+>)?) (\w+(?:, \w+)*)(?:(?:.*?=(?!>))|(?!.*?\())');
+final RegExp fieldRegExp = new RegExp(r'^(?!(?:(?:[a-z]+ )*)?class|part(?: of)?|get|set|return|yield|library)((?:[a-z]+ )+)?([\w.]+(?:<[\w.<, >]+>)?) (\w+(?:, \w+)*)(?:(?:.*?=(?!>))|(?!.*?\())');
 
 Iterable<DocObject> parse(String file, String fName) {
   List<String> lines = file.split('\n');
@@ -203,6 +203,8 @@ Iterable<DocObject> parse(String file, String fName) {
           }
           if (match.group(4) != null && match.group(4).trim().isNotEmpty)
             doc.params = parseParams(match.group(4).trim());
+          else
+            doc.params = '';
           doc.async = match.group(5) != null;
           doc.comment = new List.from(docComment);
           docComment.clear();
@@ -219,8 +221,10 @@ Iterable<DocObject> parse(String file, String fName) {
             doc.type = match.group(2).trim();
           else
             doc.type = 'dynamic';
-          if (ctx != null)
+          if (ctx != null) {
             doc.parent = ctx;
+            ctx.fields[doc.memberName] = doc;
+          }
           doc.comment = new List.from(docComment);
           docComment.clear();
           docs.add(doc);
@@ -237,7 +241,7 @@ Iterable<DocObject> parse(String file, String fName) {
   return docs;
 }
 
-final RegExp paramRegExp = new RegExp(r'((?:^|[^\w\s]+)\s*)(\w+)(?=\s*(?:$|[^\w\s]+))');
+final RegExp paramRegExp = new RegExp(r'(?!this\.)((?:^|[^\w\s.]+)\s*)(\w+)(?=\s*(?:$|[^\w\s.]+))');
 
 String parseParams(String params) {
   return params.replaceAllMapped(paramRegExp, (m) => '${m.group(1)}dynamic ${m.group(2)}');
