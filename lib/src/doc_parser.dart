@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
-import 'package:collection/collection.dart';
 
 abstract class DocObject {
   String memberName;
@@ -64,9 +63,10 @@ class DocType extends DocObject {
 class DocFunction extends DocObject {
   DocType parent;
   String returnType;
-  List<String> params;
+  String params;
+  bool async;
 
-  get memberQuery => '${parent != null ? '${parent.memberName}#' : ''}$memberName(${params.join(', ')})';
+  get memberQuery => '${parent != null ? '${parent.memberName}#' : ''}$memberName(${params})';
 
   DocFunction(String name, String file) : super(name, file);
 
@@ -77,7 +77,10 @@ class DocFunction extends DocObject {
     if (modifiers != null)
       buf..write(modifiers.join(' '))..write(' ');
     buf..write(returnType)..write(' ')..write(memberName)
-      ..write('(')..write(params.join(', '))..write(')')..write('\n');
+      ..write('(')..write(params)..write(')');
+    if (async)
+      buf..write(' async');
+    buf..write('\n');
 
     buf..write('[Containing Library]: ')..write(file)..write('\n');
 
@@ -85,7 +88,7 @@ class DocFunction extends DocObject {
       buf..write('[Containing Class]: ')..write(parent.memberName)..write('\n');
 
     if (params.isNotEmpty)
-      buf..write('[Parameters]: ')..write(params.join(', '))..write('\n');
+      buf..write('[Parameters]: ')..write(params)..write('\n');
 
     buf..write('[Return Type]: ')..write(returnType)..write('\n');
 
@@ -137,10 +140,9 @@ Future cacheSrc() async {
     .forEach(cached.addAll);
 }
 
-final RegExp typeRegExp = new RegExp(r'^((?:[a-z]+ )*)class (\w+) (?:extends (\w+) )?(?:implements ((?:\w+(,\s*)?)+) )\{');
-final RegExp funcRegExp = new RegExp(r'^(?!(?:(?:[a-z]+ )*)?class|part(?: of)?|get|set|return|yield)((?:[a-z]+ )*)?(\w+(?:<[\w<, >]+>)? )?(?!(?:if|for|catch|while|with|super|switch|this)\W)([\w.]+)\s*\((.*)\)');
-final RegExp fieldRegExp = new RegExp(r'^(?!(?:(?:[a-z]+ )*)?class|part(?: of)?|get|set|return|yield)((?:[a-z]+ )*)?(\w+(?:<[\w<, >]+>)?) (\w+(?:, \w+)*)(?:(?:.*?=(?!>))|(?!.*?\())');
-final RegExp paramRegExp = new RegExp(r'(\w+(?:<[\w<, >]+>)?) (\w+(?:, \w+)*)');
+final RegExp typeRegExp = new RegExp(r'^((?:[a-z]+ )+)?class (\w+) ?(?: extends (\w+) )?(?: implements ((?:\w+(,\s*)?)+) )?\{');
+final RegExp funcRegExp = new RegExp(r'^(?!(?:(?:[a-z]+ )+)??class|part(?: of)?|get|set|return|yield)((?:[a-z]+ )*)?([\w.]+(?:<[\w.<, >]+>)? )?(?!(?:if|for|catch|while|with|super|switch|this)\W)([\w.]+)\s*\((.*)\)(?: (async))?');
+final RegExp fieldRegExp = new RegExp(r'^(?!(?:(?:[a-z]+ )*)?class|part(?: of)?|get|set|return|yield|library)((?:[a-z]+ )+)?(\w+(?:<[\w<, >]+>)?) (\w+(?:, \w+)*)(?:(?:.*?=(?!>))|(?!.*?\())');
 
 Iterable<DocObject> parse(String file, String fName) {
   List<String> lines = file.split('\n');
@@ -158,76 +160,94 @@ Iterable<DocObject> parse(String file, String fName) {
       if (line.startsWith('///')) {
         docComment.add(line.substring(3).trim());
       } else if ((match = typeRegExp.firstMatch(line)) != null) {
-        DocType doc = new DocType(match.group(2).trim(), fName);
-        if (match.group(1) != null)
-          doc.modifiers = match.group(1).trim().split(new RegExp(r'\s+'));
-        if (match.group(3) != null)
-          doc.superClass = match.group(3).trim();
-        if (match.group(4) != null)
-          doc.implemented = match.group(4).split(',').map((s) => s.trim());
-        if (bracketBalance(line) > 0)
-          ctx = doc;
-        doc.comment = new List.from(docComment);
-        docComment.clear();
-        docs.add(doc);
-      } else if ((match = funcRegExp.firstMatch(line)) != null) {
-        DocFunction doc = new DocFunction(match.group(3), fName);
-        if (match.group(1) != null)
-          doc.modifiers = match.group(1).trim().split(new RegExp(r'\s+'));
-        bool constructor = false;
-        if (match.group(2) != null) {
-          doc.returnType = match.group(2).trim();
+        if (!match.group(2).trim().startsWith('_')) {
+          DocType doc = new DocType(match.group(2).trim(), fName);
+          if (match.group(1) != null)
+            doc.modifiers = match.group(1).trim().split(new RegExp(r'\s+'));
+          if (match.group(3) != null)
+            doc.superClass = match.group(3).trim();
+          if (match.group(4) != null)
+            doc.implemented = match.group(4).split(',').map((s) => s.trim());
+          if (bracketBalance(line) > 0)
+            ctx = doc;
+          doc.comment = new List.from(docComment);
+          docComment.clear();
+          docs.add(doc);
         } else {
-          int dotInd = doc.memberName.indexOf('.');
-          if (ctx != null &&
-              (doc.memberName == ctx.memberName
-              || (dotInd != -1 && doc.memberName.substring(0, dotInd) == ctx.memberName))) {
-            doc.returnType = ctx.memberName;
-            ctx.constructors.add(doc);
-            doc.parent = ctx;
-            constructor = true;
+          docComment.clear();
+        }
+      } else if ((match = funcRegExp.firstMatch(line)) != null) {
+        if (!match.group(3).trim().startsWith('_')) {
+          DocFunction doc = new DocFunction(match.group(3), fName);
+          if (match.group(1) != null)
+            doc.modifiers = match.group(1).trim().split(new RegExp(r'\s+'));
+          bool constructor = false;
+          if (match.group(2) != null) {
+            doc.returnType = match.group(2).trim();
           } else {
-            doc.returnType = 'dynamic';
+            int dotInd = doc.memberName.indexOf('.');
+            if (ctx != null &&
+                (doc.memberName == ctx.memberName ||
+                (dotInd != -1 && doc.memberName.substring(0, dotInd) == ctx.memberName))) {
+              doc.returnType = ctx.memberName;
+              ctx.constructors.add(doc);
+              doc.parent = ctx;
+              constructor = true;
+            } else {
+              doc.returnType = 'dynamic';
+            }
           }
+          if (!constructor && ctx != null) {
+            doc.parent = ctx;
+            ctx.funcs[doc.memberName] = doc;
+          }
+          if (match.group(4) != null && match.group(4).trim().isNotEmpty)
+            doc.params = parseParams(match.group(4).trim());
+          doc.async = match.group(5) != null;
+          doc.comment = new List.from(docComment);
+          docComment.clear();
+          docs.add(doc);
+        } else {
+          docComment.clear();
         }
-        if (!constructor && ctx != null) {
-          doc.parent = ctx;
-          ctx.funcs[doc.memberName] = doc;
-        }
-        if (match.group(4) != null && match.group(4).trim().isNotEmpty)
-          doc.params = match.group(4).split(',').map((s) => s.trim()).map((p) => paramRegExp.hasMatch(p) ? p : 'dynamic $p');
-        else
-          doc.params = [];
-        doc.comment = new List.from(docComment);
-        docComment.clear();
-        docs.add(doc);
       } else if ((match = fieldRegExp.firstMatch(line)) != null) {
-        DocField doc = new DocField(match.group(3), fName);
-        if (match.group(1) != null)
-          doc.modifiers = match.group(1).trim().split(new RegExp(r'\s+'));
-        if (match.group(2) != null)
-          doc.type = match.group(2).trim();
-        else
-          doc.type = 'dynamic';
-        if (ctx != null)
-          doc.parent = ctx;
-        doc.comment = new List.from(docComment);
-        docComment.clear();
-        docs.add(doc);
+        if (!match.group(3).trim().startsWith('_')) {
+          DocField doc = new DocField(match.group(3), fName);
+          if (match.group(1) != null)
+            doc.modifiers = match.group(1).trim().split(new RegExp(r'\s+'));
+          if (match.group(2) != null)
+            doc.type = match.group(2).trim();
+          else
+            doc.type = 'dynamic';
+          if (ctx != null)
+            doc.parent = ctx;
+          doc.comment = new List.from(docComment);
+          docComment.clear();
+          docs.add(doc);
+        } else {
+          docComment.clear();
+        }
       }
     }
     balance += bracketBalance(line);
     if (balance == 0)
       ctx = null;
   }
-  docs.forEach((d) => print(d.memberName));
+  docs.forEach((d) => print(d.memberQuery));
   return docs;
+}
+
+final RegExp paramRegExp = new RegExp(r'((?:^|[^\w\s]+)\s*)(\w+)(?=\s*(?:$|[^\w\s]+))');
+
+String parseParams(String params) {
+  return params.replaceAllMapped(paramRegExp, (m) => '${m.group(1)}dynamic ${m.group(2)}');
 }
 
 int bracketBalance(String line) {
   int balance = 0, ind = -1;
   while ((ind = line.indexOf('{', ind + 1)) != -1)
     balance++;
+  ind = -1;
   while ((ind = line.indexOf('}', ind + 1)) != -1)
     balance--;
   return balance;
@@ -246,54 +266,61 @@ Future<Iterable<DocObject>> docFor(String query) async {
   return docQuery(query).allMatches();
 }
 
-final RegExp queryFuncRegExp = new RegExp(r'(?:(\w+)#)?(\w+)\((.+)?\)');
-final RegExp queryTypeFieldRegExp = new RegExp(r'(?:(\w+)\.)?(\w+)');
+final RegExp queryFuncRegExp = new RegExp(r'(?:(\w+)#)?(\w+)\((.+)?\)(?: (\w+\.dart))?');
+final RegExp queryTypeFieldRegExp = new RegExp(r'(?:(\w+)\.)?(\w+)(?: (\w+\.dart))?');
 final DocQuery emptyQuery = new EmptyQuery();
-final Function listEq = const ListEquality().equals;
 
 abstract class DocQuery {
   Iterable<DocObject> allMatches();
 }
 
 class FunctionQuery extends DocQuery {
-  String containing, name;
-  Iterable<String> params;
+  String containing, name, params, file;
 
-  FunctionQuery(this.containing, this.name, String paramNames) {
-    if (paramNames != null)
-      params = paramNames.split(',').map((p) => p.trim());
-  }
+  FunctionQuery(this.containing, this.name, this.params, this.file);
 
   Iterable<DocObject> allMatches() {
     print('$containing#$name($params)');
     Iterable<DocFunction> matches = cached.where((f) => f is DocFunction && f.memberName == this.name);
-    if (this.containing == null)
+    if (this.containing == null && this.containing.trim().isNotEmpty)
       matches = matches.where((f) => f.parent == null);
     else
       matches = matches.where((f) => f.parent != null && f.parent.memberName == this.containing);
-    if (this.params != null)
-      matches = matches.where((f) => listEq(f.params, this.params));
+    if (this.params != null && this.params.isNotEmpty)
+      matches = matches.where((f) => f.params == this.params);
+    if (this.file != null && this.file.trim().isNotEmpty)
+      matches = matches.where((f) => f.file == this.file);
     return matches;
   }
 }
 
 class FieldQuery extends DocQuery {
-  String containing, name;
+  String containing, name, file;
 
-  FieldQuery(this.containing, this.name);
+  FieldQuery(this.containing, this.name, this.file);
 
   Iterable<DocObject> allMatches() {
-    return cached.where((f) => f is DocField && f.memberName == this.name);
+    Iterable<DocField> matches = cached.where((f) => f is DocField && f.memberName == this.name);
+    if (this.containing == null && this.containing.trim().isNotEmpty)
+      matches = matches.where((f) => f.parent == null);
+    else
+      matches = matches.where((f) => f.parent.memberName == this.containing);
+    if (this.file != null && this.file.trim().isNotEmpty)
+      matches = matches.where((f) => f.file == this.file);
+    return matches;
   }
 }
 
 class NonFunctionQuery extends DocQuery {
-  String name;
+  String name, file;
 
-  NonFunctionQuery(this.name);
+  NonFunctionQuery(this.name, this.file);
 
   Iterable<DocObject> allMatches() {
-    return cached.where((f) => !(f is DocFunction) && f.memberName == this.name);
+    Iterable<DocObject> matches = cached.where((f) => !(f is DocFunction) && f.memberName == this.name);
+    if (this.file != null && this.file.trim().isNotEmpty)
+      matches = matches.where((f) => f.file == this.file);
+    return matches;
   }
 }
 
@@ -304,9 +331,9 @@ class EmptyQuery extends DocQuery {
 DocQuery docQuery(String query) {
   Match match;
   if ((match = queryFuncRegExp.firstMatch(query)) != null) {
-    return new FunctionQuery(match.group(1), match.group(2), match.group(3));
+    return new FunctionQuery(match.group(1), match.group(2), match.group(3), match.group(4));
   } else if ((match = queryTypeFieldRegExp.firstMatch(query)) != null) {
-    return match.group(1) != null ? new FieldQuery(match.group(1), match.group(2)) : new NonFunctionQuery(match.group(2));
+    return match.group(1) != null ? new FieldQuery(match.group(1), match.group(2), match.group(3)) : new NonFunctionQuery(match.group(2), match.group(3));
   }
   return emptyQuery;
 }

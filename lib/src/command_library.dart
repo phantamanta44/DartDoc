@@ -14,7 +14,7 @@ void register(Commander registry) {
   registry.register(new Command('doc')
     ..withAlias('docs')
     ..withDescription('Retrieves API documentation.')
-    ..withUsage('docs <member>')
+    ..withUsage('docs <member> [srcfile]')
     ..withExecutor((List<String> args, Message ctx, DocBot bot) {
       if (args.length > 0) {
         docFor(args.join(' ')).then((docs) {
@@ -24,7 +24,7 @@ void register(Commander registry) {
             DocObject doc = docs.first;
             ctx.channel.sendMessage('__**${doc.memberQuery}**__\n${doc.formatDoc()}');
           } else {
-            Iterable<String> memberList = docs.map((d) => '- ${d.memberQuery}');
+            Iterable<String> memberList = docs.map((d) => '- ${d.memberQuery} (${d.file})');
             ctx.channel.sendMessage('__**Matched Members**__\n${memberList.join('\n')}');
           }
         });
