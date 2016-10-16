@@ -197,7 +197,7 @@ Iterable<DocObject> parse(String file, String fName) {
           docComment.clear();
         }
       } else if ((match = funcRegExp.firstMatch(line)) != null) {
-        if (!match.group(3).trim().startsWith('_')) {
+        if (!match.group(3).trim().startsWith('_') && !match.group(3).contains('._')) {
           DocFunction doc = new DocFunction(match.group(3), fName);
           if (match.group(1) != null)
             doc.modifiers = match.group(1).trim().split(new RegExp(r'\s+'));
